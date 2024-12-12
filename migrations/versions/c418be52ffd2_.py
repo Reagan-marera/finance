@@ -1,8 +1,8 @@
 """empty message
 
-Revision ID: 683a418f8023
+Revision ID: c418be52ffd2
 Revises: 
-Create Date: 2024-12-12 01:16:19.445395
+Create Date: 2024-12-12 12:19:35.870889
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '683a418f8023'
+revision = 'c418be52ffd2'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -21,23 +21,45 @@ def upgrade():
     op.create_table('cash_disbursement_journal',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('disbursement_date', sa.String(length=50), nullable=False),
-    sa.Column('amount_paid', sa.Float(), nullable=False),
-    sa.Column('supplier_name', sa.String(length=100), nullable=False),
-    sa.PrimaryKeyConstraint('id')
+    sa.Column('cheque_no', sa.String(length=50), nullable=False),
+    sa.Column('p_voucher_no', sa.String(length=50), nullable=True),
+    sa.Column('to_whom_paid', sa.String(length=100), nullable=False),
+    sa.Column('description', sa.String(length=255), nullable=True),
+    sa.Column('account_class', sa.String(length=50), nullable=False),
+    sa.Column('account_type', sa.String(length=50), nullable=False),
+    sa.Column('account_credited', sa.String(length=50), nullable=False),
+    sa.Column('cash', sa.Float(), nullable=False),
+    sa.Column('bank', sa.Float(), nullable=False),
+    sa.Column('total', sa.Float(), nullable=False),
+    sa.Column('vote_total', sa.Float(), nullable=False),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('cheque_no')
     )
     op.create_table('cash_receipt_journal',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('receipt_date', sa.String(length=50), nullable=False),
-    sa.Column('amount_received', sa.Float(), nullable=False),
-    sa.Column('customer_name', sa.String(length=100), nullable=False),
-    sa.PrimaryKeyConstraint('id')
+    sa.Column('receipt_no', sa.String(length=50), nullable=False),
+    sa.Column('ref_no', sa.String(length=50), nullable=True),
+    sa.Column('from_whom_received', sa.String(length=100), nullable=False),
+    sa.Column('description', sa.String(length=255), nullable=True),
+    sa.Column('account_class', sa.String(length=50), nullable=False),
+    sa.Column('account_type', sa.String(length=50), nullable=False),
+    sa.Column('account_debited', sa.String(length=50), nullable=False),
+    sa.Column('cash', sa.Float(), nullable=False),
+    sa.Column('bank', sa.Float(), nullable=False),
+    sa.Column('total', sa.Float(), nullable=False),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('receipt_no')
     )
     op.create_table('chart_of_accounts',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('account_code', sa.String(length=50), nullable=False),
     sa.Column('account_name', sa.String(length=100), nullable=False),
     sa.Column('account_type', sa.String(length=50), nullable=False),
-    sa.PrimaryKeyConstraint('id')
+    sa.Column('category', sa.String(length=50), nullable=True),
+    sa.Column('sub_account_details', sa.String(length=255), nullable=True),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('account_code')
     )
     op.create_table('user',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -52,9 +74,9 @@ def upgrade():
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('date', sa.String(length=50), nullable=False),
     sa.Column('coa_id', sa.Integer(), nullable=False),
+    sa.Column('description', sa.String(length=255), nullable=True),
     sa.Column('debit', sa.Float(), nullable=False),
     sa.Column('credit', sa.Float(), nullable=False),
-    sa.Column('description', sa.String(length=255), nullable=True),
     sa.ForeignKeyConstraint(['coa_id'], ['chart_of_accounts.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
@@ -63,6 +85,7 @@ def upgrade():
     sa.Column('invoice_number', sa.String(length=50), nullable=False),
     sa.Column('date_issued', sa.String(length=50), nullable=False),
     sa.Column('customer_name', sa.String(length=100), nullable=False),
+    sa.Column('account_type', sa.String(length=100), nullable=False),
     sa.Column('amount', sa.Float(), nullable=False),
     sa.Column('coa_id', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['coa_id'], ['chart_of_accounts.id'], ),

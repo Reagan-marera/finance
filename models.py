@@ -20,9 +20,11 @@ class User(db.Model):
 # Chart of Accounts (COA) model
 class ChartOfAccounts(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    account_code = db.Column(db.String(50), nullable=False)
+    account_code = db.Column(db.String(50), unique=True, nullable=False)
     account_name = db.Column(db.String(100), nullable=False)
     account_type = db.Column(db.String(50), nullable=False)
+    category = db.Column(db.String(50), nullable=True)
+    sub_account_details = db.Column(db.String(255), nullable=True)
 
     def __repr__(self):
         return f'<ChartOfAccounts {self.account_code} - {self.account_name}>'
@@ -33,6 +35,7 @@ class InvoiceIssued(db.Model):
     invoice_number = db.Column(db.String(50), unique=True, nullable=False)
     date_issued = db.Column(db.String(50), nullable=False)
     customer_name = db.Column(db.String(100), nullable=False)
+    account_type = db.Column(db.String(100), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     coa_id = db.Column(db.Integer, db.ForeignKey('chart_of_accounts.id'), nullable=False)
 
@@ -46,9 +49,9 @@ class GeneralJournal(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.String(50), nullable=False)
     coa_id = db.Column(db.Integer, db.ForeignKey('chart_of_accounts.id'), nullable=False)
+    description = db.Column(db.String(255), nullable=True)
     debit = db.Column(db.Float, nullable=False)
     credit = db.Column(db.Float, nullable=False)
-    description = db.Column(db.String(255), nullable=True)
 
     coa = db.relationship('ChartOfAccounts', backref='general_journals')
 
@@ -59,18 +62,35 @@ class GeneralJournal(db.Model):
 class CashReceiptJournal(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     receipt_date = db.Column(db.String(50), nullable=False)
-    amount_received = db.Column(db.Float, nullable=False)
-    customer_name = db.Column(db.String(100), nullable=False)
+    receipt_no = db.Column(db.String(50), unique=True, nullable=False)
+    ref_no = db.Column(db.String(50), nullable=True)
+    from_whom_received = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.String(255), nullable=True)
+    account_class = db.Column(db.String(50), nullable=False)
+    account_type = db.Column(db.String(50), nullable=False)
+    account_debited = db.Column(db.String(50), nullable=False)
+    cash = db.Column(db.Float, nullable=False)
+    bank = db.Column(db.Float, nullable=False)
+    total = db.Column(db.Float, nullable=False)
 
     def __repr__(self):
-        return f'<CashReceiptJournal {self.receipt_date} - {self.customer_name}>'
+        return f'<CashReceiptJournal {self.receipt_date} - {self.from_whom_received}>'
 
 # Cash Disbursement Journal model
 class CashDisbursementJournal(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     disbursement_date = db.Column(db.String(50), nullable=False)
-    amount_paid = db.Column(db.Float, nullable=False)
-    supplier_name = db.Column(db.String(100), nullable=False)
+    cheque_no = db.Column(db.String(50), unique=True, nullable=False)
+    p_voucher_no = db.Column(db.String(50), nullable=True)
+    to_whom_paid = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.String(255), nullable=True)
+    account_class = db.Column(db.String(50), nullable=False)
+    account_type = db.Column(db.String(50), nullable=False)
+    account_credited = db.Column(db.String(50), nullable=False)
+    cash = db.Column(db.Float, nullable=False)
+    bank = db.Column(db.Float, nullable=False)
+    total = db.Column(db.Float, nullable=False)
+    vote_total = db.Column(db.Float, nullable=False)
 
     def __repr__(self):
-        return f'<CashDisbursementJournal {self.disbursement_date} - {self.supplier_name}>'
+        return f'<CashDisbursementJournal {self.disbursement_date} - {self.to_whom_paid}>'
