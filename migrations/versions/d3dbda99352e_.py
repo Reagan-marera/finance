@@ -1,8 +1,8 @@
 """empty message
 
-Revision ID: c418be52ffd2
+Revision ID: d3dbda99352e
 Revises: 
-Create Date: 2024-12-12 12:19:35.870889
+Create Date: 2024-12-13 09:38:31.653647
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'c418be52ffd2'
+revision = 'd3dbda99352e'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -24,6 +24,8 @@ def upgrade():
     sa.Column('cheque_no', sa.String(length=50), nullable=False),
     sa.Column('p_voucher_no', sa.String(length=50), nullable=True),
     sa.Column('to_whom_paid', sa.String(length=100), nullable=False),
+    sa.Column('payment_type', sa.String(length=255), nullable=True),
+    sa.Column('cashbook', sa.String(length=255), nullable=True),
     sa.Column('description', sa.String(length=255), nullable=True),
     sa.Column('account_class', sa.String(length=50), nullable=False),
     sa.Column('account_type', sa.String(length=50), nullable=False),
@@ -42,6 +44,7 @@ def upgrade():
     sa.Column('ref_no', sa.String(length=50), nullable=True),
     sa.Column('from_whom_received', sa.String(length=100), nullable=False),
     sa.Column('description', sa.String(length=255), nullable=True),
+    sa.Column('receipt_type', sa.String(length=250), nullable=False),
     sa.Column('account_class', sa.String(length=50), nullable=False),
     sa.Column('account_type', sa.String(length=50), nullable=False),
     sa.Column('account_debited', sa.String(length=50), nullable=False),
@@ -66,6 +69,7 @@ def upgrade():
     sa.Column('username', sa.String(length=80), nullable=False),
     sa.Column('email', sa.String(length=120), nullable=False),
     sa.Column('password_hash', sa.String(length=128), nullable=True),
+    sa.Column('role', sa.String(length=20), nullable=False),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('email'),
     sa.UniqueConstraint('username')

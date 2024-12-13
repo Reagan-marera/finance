@@ -1,9 +1,9 @@
 from flask import Flask, jsonify, request
 from flask_migrate import Migrate
 from flask_cors import CORS
-from flask_jwt_extended import JWTManager, jwt_required, create_access_token
+from flask_jwt_extended import JWTManager, jwt_required, create_access_token,get_jwt_identity
 from models import db, User, ChartOfAccounts, InvoiceIssued, GeneralJournal, CashReceiptJournal, CashDisbursementJournal
-
+from functools import wraps
 # Initialize the Flask app
 app = Flask(__name__)
 
@@ -17,6 +17,22 @@ db.init_app(app)
 migrate = Migrate(app, db)
 CORS(app)
 jwt = JWTManager(app)
+
+from functools import wraps
+
+def role_required(role):
+    def wrapper(fn):
+        @wraps(fn)  # This ensures the endpoint name remains consistent
+        @jwt_required()
+        def decorated(*args, **kwargs):
+            current_user = User.query.filter_by(username=get_jwt_identity()).first()
+            if not current_user or current_user.role != role:
+                return jsonify({'message': 'Access forbidden: Insufficient privileges'}), 403
+            return fn(*args, **kwargs)
+        return decorated
+    return wrapper
+
+
 # Register route for user registration
 @app.route('/register', methods=['POST'])
 def register_user():
@@ -24,7 +40,7 @@ def register_user():
     if User.query.filter_by(username=data['username']).first():
         return jsonify({'message': 'User already exists'}), 400
 
-    user = User(username=data['username'], email=data['email'])
+    user = User(username=data['username'], email=data['email'], role=data.get('role', 'User'))
     user.set_password(data['password'])
     db.session.add(user)
     db.session.commit()
@@ -37,8 +53,70 @@ def login_user():
     user = User.query.filter_by(username=data['username']).first()
     if user and user.check_password(data['password']):
         token = create_access_token(identity=user.username)
-        return jsonify({'token': token}), 200
+        return jsonify({'token': token, 'role': user.role}), 200
     return jsonify({'message': 'Invalid username or password'}), 401
+
+# CEO-specific routes
+@app.route('/users', methods=['GET'])
+@role_required('CEO')
+def get_all_users():
+    users = User.query.all()
+    return jsonify([{
+        'id': user.id,
+        'username': user.username,
+        'email': user.email,
+        'role': user.role
+    } for user in users])
+
+@app.route('/users/<int:id>', methods=['DELETE'])
+@role_required('CEO')
+def delete_user(id):
+    user = User.query.get_or_404(id)
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({'message': 'User deleted successfully'})
+
+@app.route('/transactions', methods=['GET'])
+@role_required('CEO')
+def get_all_transactions():
+    general_journal_entries = GeneralJournal.query.all()
+    invoices = InvoiceIssued.query.all()
+    cash_receipts = CashReceiptJournal.query.all()
+    cash_disbursements = CashDisbursementJournal.query.all()
+
+    transactions = {
+        'general_journal': [{
+            'id': entry.id,
+            'date': entry.date,
+            'account': entry.account,
+            'debit': entry.debit,
+            'credit': entry.credit,
+            'description': entry.description
+        } for entry in general_journal_entries],
+        'invoices_issued': [{
+            'id': invoice.id,
+            'date': invoice.date,
+            'amount': invoice.amount,
+            'customer': invoice.customer,
+            'description': invoice.description
+        } for invoice in invoices],
+        'cash_receipts': [{
+            'id': receipt.id,
+            'date': receipt.date,
+            'amount': receipt.amount,
+            'account': receipt.account,
+            'description': receipt.description
+        } for receipt in cash_receipts],
+        'cash_disbursements': [{
+            'id': disbursement.id,
+            'date': disbursement.date,
+            'amount': disbursement.amount,
+            'account': disbursement.account,
+            'description': disbursement.description
+        } for disbursement in cash_disbursements]
+    }
+
+    return jsonify(transactions)
 
 # CRUD for Chart of Accounts
 @app.route('/chart-of-accounts', methods=['GET', 'POST'])
@@ -184,6 +262,7 @@ def update_delete_general_journal(id):
         db.session.commit()
         return jsonify({'message': 'General Journal entry deleted successfully'})
 
+
 # CRUD for CashReceiptJournal
 @app.route('/cash-receipt-journals', methods=['GET', 'POST'])
 @jwt_required()
@@ -199,6 +278,7 @@ def manage_cash_receipt_journals():
             'description': journal.description,
             'account_class': journal.account_class,
             'account_type': journal.account_type,
+            'receipt_type': journal.receipt_type,
             'account_debited': journal.account_debited,
             'cash': journal.cash,
             'bank': journal.bank,
@@ -215,6 +295,7 @@ def manage_cash_receipt_journals():
             description=data.get('description'),
             account_class=data['account_class'],
             account_type=data['account_type'],
+            receipt_type=data['receipt_type'],
             account_debited=data['account_debited'],
             cash=data['cash'],
             bank=data['bank'],
@@ -265,6 +346,8 @@ def manage_cash_disbursement_journals():
             'account_class': journal.account_class,
             'account_type': journal.account_type,
             'account_credited': journal.account_credited,
+            'cashbook': journal.cashbook,
+            'payment_type': journal.payment_type,
             'cash': journal.cash,
             'bank': journal.bank,
             'total': journal.total,
@@ -281,6 +364,8 @@ def manage_cash_disbursement_journals():
             description=data.get('description'),
             account_class=data['account_class'],
             account_type=data['account_type'],
+            payment_type=data['payment_type'],
+            cashbook=data['cashbook'],
             account_credited=data['account_credited'],
             cash=data['cash'],
             bank=data['bank'],
@@ -306,6 +391,8 @@ def update_delete_cash_disbursement_journal(id):
         journal.account_type = data.get('account_type', journal.account_type)
         journal.account_credited = data.get('account_credited', journal.account_credited)
         journal.cash = data.get('cash', journal.cash)
+        journal.cashbook = data.get('cash', journal.cashbook)
+        journal.payment_type = data.get('cash', journal.payment_type)
         journal.bank = data.get('bank', journal.bank)
         journal.total = data.get('total', journal.total)
         journal.vote_total = data.get('vote_total', journal.vote_total)
