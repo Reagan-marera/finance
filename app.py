@@ -382,12 +382,13 @@ def update_delete_chart_of_accounts(id):
         db.session.commit()
         return jsonify({'message': 'Chart of Accounts deleted successfully'})
 
-# Route to manage invoices (GET and POST)
+#
 @app.route('/invoices', methods=['GET', 'POST'])
 @jwt_required()
 def manage_invoices():
     try:
-        current_user = get_jwt_identity()  # Extract `coa_id` from the JWT
+        # Get user information from the JWT token
+        current_user = get_jwt_identity()  # This will give you the user_id or any other info
 
         if request.method == 'GET':
             # Fetch invoices associated with the user's `coa_id`
@@ -403,8 +404,8 @@ def manage_invoices():
                 'account_debited': inv.account_debited,
                 'account_credited': inv.account_credited,
                 'grn_number': inv.grn_number,
-                'invoice_type': inv.invoice_type,  # Include invoice_type in response
-                'parent_account': inv.parent_account  # Include parent_account in response
+                'invoice_type': inv.invoice_type,
+                'parent_account': inv.parent_account
             } for inv in invoices]), 200
 
         elif request.method == 'POST':
@@ -428,18 +429,19 @@ def manage_invoices():
 
             # Create and save the new invoice
             new_invoice = InvoiceIssued(
-    invoice_number=data['invoice_number'],
-    date_issued=date_issued,  
-    account_type=data['account_type'],
-    amount=float(data['amount']),
-    account_class=data['account_class'],
-    account_debited=data['account_debited'],
-    account_credited=data['account_credited'],
-    grn_number=data.get('grn_number'),
-    invoice_type=data['invoice_type'],  # Add invoice_type here
-    coa_id=current_user,  # Use `coa_id` from the token
-    parent_account=data['parent_account']  # Include parent_account
-)
+                invoice_number=data['invoice_number'],
+                date_issued=date_issued,
+                account_type=data['account_type'],
+                amount=float(data['amount']),
+                account_class=data['account_class'],
+                account_debited=data['account_debited'],
+                account_credited=data['account_credited'],
+                grn_number=data.get('grn_number'),
+                invoice_type=data['invoice_type'],  # Add invoice_type here
+                coa_id=current_user,  # Use the user_id from the token (current_user)
+                user_id=current_user,  # Make sure to include user_id in the model
+                parent_account=data['parent_account']  # Include parent_account
+            )
 
             db.session.add(new_invoice)
             db.session.commit()
@@ -449,7 +451,6 @@ def manage_invoices():
     except Exception as e:
         app.logger.error(f"Error managing invoices: {e}")
         return jsonify({'error': 'An error occurred while processing your request'}), 500
-
 
 # Route to update or delete a specific invoice (PUT and DELETE)
 @app.route('/invoices/<int:id>', methods=['PUT', 'DELETE'])
