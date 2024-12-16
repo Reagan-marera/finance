@@ -1,8 +1,8 @@
 """empty message
 
-Revision ID: e2240dac929e
+Revision ID: 100ca7abebc0
 Revises: 
-Create Date: 2024-12-14 20:17:27.926178
+Create Date: 2024-12-16 13:42:11.200261
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'e2240dac929e'
+revision = '100ca7abebc0'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -47,11 +47,12 @@ def upgrade():
     sa.Column('description', sa.String(length=255), nullable=True),
     sa.Column('account_class', sa.String(length=50), nullable=False),
     sa.Column('account_type', sa.String(length=50), nullable=False),
+    sa.Column('parent_account', sa.String(length=150), nullable=False),
     sa.Column('account_credited', sa.String(length=100), nullable=False),
     sa.Column('account_debited', sa.String(length=100), nullable=False),
     sa.Column('cash', sa.Float(), nullable=False),
-    sa.Column('bank', sa.String(length=50), nullable=False),
-    sa.Column('vote_total', sa.Float(), nullable=False),
+    sa.Column('bank', sa.Float(), nullable=False),
+    sa.Column('total', sa.Float(), nullable=False),
     sa.Column('created_by', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['created_by'], ['user.id'], ),
     sa.PrimaryKeyConstraint('id'),
@@ -72,6 +73,7 @@ def upgrade():
     sa.Column('bank', sa.String(length=100), nullable=True),
     sa.Column('cash', sa.Float(), nullable=False),
     sa.Column('total', sa.Float(), nullable=False),
+    sa.Column('parent_account', sa.String(length=150), nullable=False),
     sa.Column('created_by', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['created_by'], ['user.id'], ),
     sa.PrimaryKeyConstraint('id'),
@@ -85,8 +87,7 @@ def upgrade():
     sa.Column('sub_account_details', sa.String(length=255), nullable=True),
     sa.Column('user_id', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['user_id'], ['user.id'], ),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('parent_account')
+    sa.PrimaryKeyConstraint('id')
     )
     op.create_table('invoice_issued',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -94,13 +95,16 @@ def upgrade():
     sa.Column('date_issued', sa.Date(), nullable=False),
     sa.Column('account_class', sa.String(length=100), nullable=False),
     sa.Column('account_type', sa.String(length=100), nullable=False),
-    sa.Column('amount', sa.Float(), nullable=False),
+    sa.Column('amount', sa.Integer(), nullable=False),
+    sa.Column('parent_account', sa.String(length=150), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
     sa.Column('coa_id', sa.Integer(), nullable=False),
     sa.Column('account_debited', sa.String(length=100), nullable=False),
     sa.Column('account_credited', sa.String(length=100), nullable=False),
     sa.Column('invoice_type', sa.String(length=50), nullable=True),
     sa.Column('grn_number', sa.String(length=20), nullable=True),
     sa.ForeignKeyConstraint(['coa_id'], ['chart_of_accounts.id'], ),
+    sa.ForeignKeyConstraint(['user_id'], ['user.id'], ),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('invoice_number')
     )

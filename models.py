@@ -19,9 +19,10 @@ class User(db.Model):
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
-    # Relationship to CashDisbursementJournal and CashReceiptJournal
+    # Relationship to CashDisbursementJournal, CashReceiptJournal, and InvoiceIssued
     cash_disbursements = db.relationship('CashDisbursementJournal', back_populates='created_by_user')
     cash_receipts = db.relationship('CashReceiptJournal', back_populates='created_by_user')
+    invoices = db.relationship('InvoiceIssued', back_populates='user')
 
     def __repr__(self):
         return f'<User {self.username} - {self.role}>'
@@ -29,7 +30,7 @@ class User(db.Model):
 # Chart of Accounts (COA) model
 class ChartOfAccounts(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    parent_account = db.Column(db.String(150), unique=True, nullable=False)
+    parent_account = db.Column(db.String(150), nullable=False)
     account_name = db.Column(db.String(100), nullable=False)
     account_type = db.Column(db.String(50), nullable=False)  # E.g., Asset, Liability, Equity
     sub_account_details = db.Column(db.String(255), nullable=True)
@@ -48,17 +49,18 @@ class InvoiceIssued(db.Model):
     date_issued = db.Column(db.Date, nullable=False)
     account_class = db.Column(db.String(100), nullable=False)
     account_type = db.Column(db.String(100), nullable=False)
-    amount = db.Column(db.Float, nullable=False)
-    
-    # Foreign key to ChartOfAccounts
+    amount = db.Column(db.Integer, nullable=False)
+    parent_account = db.Column(db.String(150), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Foreign key linking to User table
     coa_id = db.Column(db.Integer, db.ForeignKey('chart_of_accounts.id'), nullable=False)
     chart_of_account = db.relationship('ChartOfAccounts', backref=db.backref('invoices', lazy=True))
+    user = db.relationship('User', back_populates='invoices')
 
     account_debited = db.Column(db.String(100), nullable=False)
     account_credited = db.Column(db.String(100), nullable=False)
     invoice_type = db.Column(db.String(50), nullable=True)
     grn_number = db.Column(db.String(20), nullable=True)
-
+    
     def __repr__(self):
         return f'<InvoiceIssued {self.invoice_number}>'
 
@@ -73,20 +75,24 @@ class CashReceiptJournal(db.Model):
     account_class = db.Column(db.String(100), nullable=False)
     account_type = db.Column(db.String(100), nullable=False)
     receipt_type = db.Column(db.String(50), nullable=False)
-    
     account_debited = db.Column(db.String(100), nullable=False)
     account_credited = db.Column(db.String(100), nullable=False)
-    
-    bank = db.Column(db.String(100), nullable=True)
+    bank = db.Column(db.String(100), nullable=True)  # Nullable for bank field
     cash = db.Column(db.Float, nullable=False)
     total = db.Column(db.Float, nullable=False)
+    parent_account = db.Column(db.String(150), nullable=False)
     
-    # Foreign key to User
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_by_user = db.relationship('User', back_populates='cash_receipts')
 
     def __repr__(self):
         return f'<CashReceiptJournal {self.receipt_no}>'
+
+    def save(self):
+        # Calculate total before saving
+        self.total = self.cash + (float(self.bank) if self.bank else 0)
+        db.session.add(self)
+        db.session.commit()
 
 # Cash Disbursement Journal model
 class CashDisbursementJournal(db.Model):
@@ -100,13 +106,13 @@ class CashDisbursementJournal(db.Model):
     description = db.Column(db.String(255), nullable=True)
     account_class = db.Column(db.String(50), nullable=False)
     account_type = db.Column(db.String(50), nullable=False)
-    
+    parent_account = db.Column(db.String(150), nullable=False)
     account_credited = db.Column(db.String(100), nullable=False)
     account_debited = db.Column(db.String(100), nullable=False)
 
-    cash = db.Column(db.Float, nullable=False)
-    bank = db.Column(db.String(50), nullable=False)
-    vote_total = db.Column(db.Float, nullable=False)
+    cash = db.Column(db.Float, nullable=False, default=0.0)
+    bank = db.Column(db.Float, nullable=False, default=0.0)  # Updated to Float for numeric values
+    total = db.Column(db.Float, nullable=False, default=0.0)  # Added total column with a default value
 
     # Foreign key to User
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -114,6 +120,16 @@ class CashDisbursementJournal(db.Model):
 
     def __repr__(self):
         return f'<CashDisbursementJournal {self.cheque_no}>'
+
+    def save(self):
+        # Ensure that cash and bank are numeric before calculation
+        if not isinstance(self.cash, (int, float)) or not isinstance(self.bank, (int, float)):
+            raise ValueError("Cash and Bank values must be numeric.")
+        
+        # Calculate total before saving
+        self.total = self.cash + self.bank
+        db.session.add(self)
+        db.session.commit()
 
 # OTP Model
 class OTP(db.Model):
