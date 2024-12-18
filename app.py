@@ -223,7 +223,6 @@ def store_otp(email, otp):
         db.session.add(otp_entry)
     db.session.commit()
 
-# Register route for user registration
 @app.route('/register', methods=['POST'])
 def register_user():
     data = request.get_json()
@@ -236,7 +235,6 @@ def register_user():
     db.session.commit()
     return jsonify({'message': 'User registered successfully'}), 201
 
-# Login route
 @app.route('/login', methods=['POST'])
 def login_user():
     data = request.get_json()
@@ -322,7 +320,6 @@ def get_all_transactions():
             'account_credited': disbursement.account_credited,
             'cash': disbursement.cash,
             'bank': disbursement.bank,
-            'vote_total': disbursement.vote_total,
             'parent_account': disbursement.parent_account  # Added parent_account
         } for disbursement in cash_disbursements]
     }
@@ -382,14 +379,14 @@ def update_delete_chart_of_accounts(id):
         db.session.commit()
         return jsonify({'message': 'Chart of Accounts deleted successfully'})
 
-#
+
 @app.route('/invoices', methods=['GET', 'POST'])
-@jwt_required()
+@jwt_required()  # Ensure the user is authenticated
 def manage_invoices():
     try:
         # Get user information from the JWT token
         current_user = get_jwt_identity()  # This will give you the user_id or any other info
-
+        
         if request.method == 'GET':
             # Fetch invoices associated with the user's `coa_id`
             invoices = InvoiceIssued.query.filter_by(coa_id=current_user).all()
@@ -405,17 +402,24 @@ def manage_invoices():
                 'account_credited': inv.account_credited,
                 'grn_number': inv.grn_number,
                 'invoice_type': inv.invoice_type,
-                'parent_account': inv.parent_account
+                'parent_account': inv.parent_account,
+                'sub_accounts': inv.sub_accounts  # Include sub_accounts in response
             } for inv in invoices]), 200
 
         elif request.method == 'POST':
             data = request.get_json()
 
             # Validate required fields
-            required_fields = ['invoice_number', 'date_issued', 'account_type', 'amount', 'account_class', 'account_debited', 'account_credited', 'invoice_type', 'parent_account']
+            required_fields = ['invoice_number', 'date_issued', 'account_type', 'amount', 'account_class', 
+                               'account_debited', 'account_credited', 'invoice_type', 'parent_account', 'sub_accounts']
             missing_fields = [field for field in required_fields if field not in data or not data[field]]
             if missing_fields:
                 return jsonify({'error': f'Missing or empty fields: {", ".join(missing_fields)}'}), 400
+
+            # Ensure sub_accounts is a valid JSON object
+            sub_accounts = data.get('sub_accounts')
+            if not isinstance(sub_accounts, dict):
+                return jsonify({'error': 'sub_accounts must be a valid JSON object.'}), 400
 
             # Convert date_issued from string to Python date object
             try:
@@ -440,7 +444,8 @@ def manage_invoices():
                 invoice_type=data['invoice_type'],  # Add invoice_type here
                 coa_id=current_user,  # Use the user_id from the token (current_user)
                 user_id=current_user,  # Make sure to include user_id in the model
-                parent_account=data['parent_account']  # Include parent_account
+                parent_account=data['parent_account'],  # Include parent_account
+                sub_accounts=sub_accounts  # Include sub_accounts
             )
 
             db.session.add(new_invoice)
@@ -467,8 +472,19 @@ def update_delete_invoice(id):
         if request.method == 'PUT':
             data = request.get_json()
 
-            # Update invoice fields only if provided
-            invoice.invoice_number = data.get('invoice_number', invoice.invoice_number)
+            # Ensure sub_accounts is provided and is a valid JSON object
+            if 'sub_accounts' in data:
+                sub_accounts = data['sub_accounts']
+                if not isinstance(sub_accounts, dict):
+                    return jsonify({'error': 'sub_accounts must be a valid JSON object.'}), 400
+                invoice.sub_accounts = sub_accounts
+
+            # Update other fields only if provided
+            if 'invoice_number' in data:
+                # Ensure invoice number is unique
+                if InvoiceIssued.query.filter_by(invoice_number=data['invoice_number']).first():
+                    return jsonify({'error': 'Invoice number already exists'}), 400
+                invoice.invoice_number = data['invoice_number']
             if 'date_issued' in data:
                 try:
                     invoice.date_issued = datetime.strptime(data['date_issued'], '%Y-%m-%d').date()  # Convert to date
@@ -494,7 +510,7 @@ def update_delete_invoice(id):
     except Exception as e:
         app.logger.error(f"Error processing invoice {id}: {e}")
         return jsonify({'error': 'An error occurred while processing your request'}), 500
-   
+
 @app.route('/cash-receipt-journals', methods=['GET', 'POST'])
 @jwt_required()
 def manage_cash_receipt_journals():
@@ -533,6 +549,11 @@ def manage_cash_receipt_journals():
             except ValueError:
                 return jsonify({'error': 'Cash and Bank must be numeric values.'}), 400
 
+            # Validate and process sub_accounts
+            sub_accounts = data.get('sub_accounts', {})  # Default to empty dictionary
+            if not isinstance(sub_accounts, dict):
+                return jsonify({'error': 'Sub-accounts must be a valid JSON object.'}), 400
+
             # Calculate the total field
             total = cash + bank
 
@@ -552,6 +573,7 @@ def manage_cash_receipt_journals():
                 bank=bank,
                 total=total,
                 parent_account=data['parent_account'],
+                sub_accounts=sub_accounts,  # Handle sub_accounts field
                 created_by=current_user
             )
             db.session.add(new_journal)
@@ -579,6 +601,7 @@ def manage_cash_receipt_journals():
                     'bank': journal.bank,
                     'parent_account': journal.parent_account,
                     'total': journal.total,
+                    'sub_accounts': journal.sub_accounts,  # Include sub_accounts in response
                 }
                 for journal in journals
             ]
@@ -586,9 +609,8 @@ def manage_cash_receipt_journals():
             return jsonify(result), 200
 
     except Exception as e:
-        app.logger.error(f"Error managing cash receipt journals: {e}", exc_info=True)
-        db.session.rollback()  # Rollback any pending transactions
-        return jsonify({'error': 'An error occurred while processing your request'}), 500
+        app.logger.error(f"Error: {e}")
+        return jsonify({'error': 'An error occurred while processing the request'}), 500
 
 @app.route('/cash-receipt-journals/<int:id>', methods=['PUT', 'DELETE'])
 @jwt_required()
@@ -643,133 +665,124 @@ def update_delete_cash_receipt_journal(id):
         app.logger.error(f"Error updating/deleting cash receipt journal: {e}")
         return jsonify({"error": "An error occurred while processing your request"}), 500
     
-    
 @app.route('/cash-disbursement-journals', methods=['GET', 'POST'])
 @jwt_required()
 def manage_cash_disbursement_journals():
-    current_user = get_jwt_identity()  # Ensure we have the current user's identity
-    print("Current User:", current_user)  # Debugging
-
-    # Get the current user's ID
+   
+    current_user = get_jwt_identity()
     user_id = current_user.get('id') if isinstance(current_user, dict) else current_user
 
     if request.method == 'GET':
-        # Retrieve journals specific to the current user
+        # Fetch all journals for the current user
         journals = CashDisbursementJournal.query.filter_by(created_by=user_id).all()
-        return jsonify([{
-            'id': journal.id,
-            'disbursement_date': journal.disbursement_date.isoformat(),
-            'cheque_no': journal.cheque_no,
-            'p_voucher_no': journal.p_voucher_no,
-            'to_whom_paid': journal.to_whom_paid,
-            'description': journal.description,
-            'account_class': journal.account_class,
-            'account_type': journal.account_type,
-            'account_credited': journal.account_credited,
-            'account_debited': journal.account_debited,
-            'parent_account': journal.parent_account,  # Include parent_account in the response
-            'cashbook': journal.cashbook,
-            'payment_type': journal.payment_type,
-            'cash': journal.cash,
-            'bank': journal.bank,
-            'total': journal.total,  # Include the total field in the response
-            'created_by_user': journal.created_by_user.username if journal.created_by_user else 'Unknown'  # Safely handle None
-        } for journal in journals])
+        return jsonify([
+            {
+                'id': journal.id,
+                'disbursement_date': journal.disbursement_date.isoformat(),
+                'cheque_no': journal.cheque_no,
+                'p_voucher_no': journal.p_voucher_no,
+                'to_whom_paid': journal.to_whom_paid,
+                'description': journal.description,
+                'account_class': journal.account_class,
+                'account_type': journal.account_type,
+                'account_credited': journal.account_credited,
+                'account_debited': journal.account_debited,
+                'parent_account': journal.parent_account,
+                'cashbook': journal.cashbook,
+                'payment_type': journal.payment_type,
+                'cash': journal.cash,
+                'bank': journal.bank,
+                'total': journal.total,
+                'sub_accounts': journal.sub_accounts,  # Added sub_accounts
+                'created_by_user': journal.created_by_user.username if journal.created_by_user else 'Unknown'
+            }
+            for journal in journals
+        ])
 
     elif request.method == 'POST':
         data = request.get_json()
 
-        # Validate and parse date
+        # Parse and validate the date
         disbursement_date = parse_date(data.get('disbursement_date'))
         if not disbursement_date:
-            return jsonify({"error": "Invalid date format. Please use 'YYYY-MM-DD'."}), 400
+            return jsonify({"error": "Invalid date format. Use 'YYYY-MM-DD'."}), 400
 
-        # Debugging: Print received data
-        print(f"Received Data: {data}")
-
-        # Validate accounts in COA
-        account_credited = data['account_credited']
-        print(f"Searching for account credited: {account_credited} for user {user_id}")
-        coa_entry_credited = ChartOfAccounts.query.filter_by(user_id=user_id, account_name=account_credited).first()
-
-        account_debited = data['account_debited']
-        print(f"Searching for account debited: {account_debited} for user {user_id}")
-        coa_entry_debited = ChartOfAccounts.query.filter_by(user_id=user_id, account_name=account_debited).first()
-
-        # Check if accounts exist in COA
-        if not coa_entry_credited:
-            print(f"COA Entry Credited not found for account: {account_credited}")
-        if not coa_entry_debited:
-            print(f"COA Entry Debited not found for account: {account_debited}")
-
-        if not coa_entry_credited or not coa_entry_debited:
-            return jsonify({'error': 'Invalid account credited or debited. Account does not exist in Chart of Accounts'}), 400
-
-        # Include parent_account field here
+        # Validate accounts
+        account_credited = data.get('account_credited')
+        account_debited = data.get('account_debited')
         parent_account = data.get('parent_account')
 
-        # Create a new CashDisbursementJournal entry
+        coa_entry_credited = ChartOfAccounts.query.filter_by(user_id=user_id, account_name=account_credited).first()
+        coa_entry_debited = ChartOfAccounts.query.filter_by(user_id=user_id, account_name=account_debited).first()
+
+        if not coa_entry_credited or not coa_entry_debited:
+            return jsonify({"error": "Invalid account credited or debited. Verify accounts in Chart of Accounts."}), 400
+
+        # Validate sub_accounts (Optional JSON field)
+        sub_accounts = data.get('sub_accounts')
+        if sub_accounts and not isinstance(sub_accounts, dict):
+            return jsonify({"error": "Invalid sub_accounts format. Must be a JSON object."}), 400
+
+        # Create the journal entry
         new_journal = CashDisbursementJournal(
             disbursement_date=disbursement_date,
             cheque_no=data['cheque_no'],
             p_voucher_no=data.get('p_voucher_no'),
             to_whom_paid=data['to_whom_paid'],
-            description=data.get('description'),  # Optional field
+            description=data.get('description'),
             account_class=data['account_class'],
             account_type=data['account_type'],
             payment_type=data['payment_type'],
             cashbook=data['cashbook'],
             account_credited=account_credited,
             account_debited=account_debited,
-            cash=data['cash'],
-            bank=data['bank'],
-            parent_account=parent_account,  # Include parent_account when creating a new journal
-            created_by=user_id  # Associate the journal entry with the current user
+            parent_account=parent_account,
+            sub_accounts=sub_accounts,  # Include sub_accounts here
+            cash=float(data.get('cash', 0)),
+            bank=float(data.get('bank', 0)),
+            created_by=user_id
         )
 
-        # Calculate total before saving
+        # Calculate total
         new_journal.total = new_journal.cash + new_journal.bank
 
+        # Save to database
         db.session.add(new_journal)
         db.session.commit()
-        return jsonify({'message': 'Cash Disbursement Journal entry created successfully'}), 201
+        return jsonify({"message": "Cash Disbursement Journal entry created successfully"}), 201
+
 
 @app.route('/cash-disbursement-journals/<int:id>', methods=['PUT', 'DELETE'])
 @jwt_required()
 def update_delete_cash_disbursement_journals(id):
-    current_user = get_jwt_identity()  # Ensure we have the current user's identity
-
-    # Debugging: Verify current_user data
-    print("Current User:", current_user)
-
-    # Get the current user's ID
+    current_user = get_jwt_identity()
     user_id = current_user.get('id') if isinstance(current_user, dict) else current_user
 
-    # Fetch the journal entry and ensure it belongs to the current user
+    # Fetch journal entry and verify ownership
     journal = CashDisbursementJournal.query.filter_by(id=id, created_by=user_id).first()
     if not journal:
-        return jsonify({'error': 'Journal entry not found or you do not have permission to modify this entry'}), 404
+        return jsonify({"error": "Journal entry not found or unauthorized"}), 404
 
     if request.method == 'PUT':
-        # Update the journal entry
         data = request.get_json()
 
-        # Validate the account credited exists in the COA for the user
+        # Validate accounts
         account_credited = data.get('account_credited', journal.account_credited)
-        coa_entry_credited = ChartOfAccounts.query.filter_by(user_id=user_id, account_name=account_credited).first()
-
-        # Validate the account debited exists in the COA for the user
         account_debited = data.get('account_debited', journal.account_debited)
+
+        coa_entry_credited = ChartOfAccounts.query.filter_by(user_id=user_id, account_name=account_credited).first()
         coa_entry_debited = ChartOfAccounts.query.filter_by(user_id=user_id, account_name=account_debited).first()
 
         if not coa_entry_credited or not coa_entry_debited:
-            return jsonify({'error': 'Invalid account credited or debited. Account does not exist in Chart of Accounts'}), 400
+            return jsonify({"error": "Invalid account credited or debited."}), 400
 
-        # Include parent_account field in the update
-        parent_account = data.get('parent_account', journal.parent_account)
+        # Validate sub_accounts (Optional)
+        sub_accounts = data.get('sub_accounts', journal.sub_accounts)
+        if sub_accounts and not isinstance(sub_accounts, dict):
+            return jsonify({"error": "Invalid sub_accounts format. Must be a JSON object."}), 400
 
         # Update fields
-        journal.disbursement_date = data.get('disbursement_date', journal.disbursement_date)
+        journal.disbursement_date = parse_date(data.get('disbursement_date')) or journal.disbursement_date
         journal.cheque_no = data.get('cheque_no', journal.cheque_no)
         journal.p_voucher_no = data.get('p_voucher_no', journal.p_voucher_no)
         journal.to_whom_paid = data.get('to_whom_paid', journal.to_whom_paid)
@@ -780,39 +793,37 @@ def update_delete_cash_disbursement_journals(id):
         journal.cashbook = data.get('cashbook', journal.cashbook)
         journal.account_credited = account_credited
         journal.account_debited = account_debited
-        journal.cash = data.get('cash', journal.cash)
-        journal.bank = data.get('bank', journal.bank)
-        journal.parent_account = parent_account  # Update parent_account field
-
-        # Recalculate the total after any changes
+        journal.parent_account = data.get('parent_account', journal.parent_account)
+        journal.sub_accounts = sub_accounts
+        journal.cash = float(data.get('cash', journal.cash))
+        journal.bank = float(data.get('bank', journal.bank))
         journal.total = journal.cash + journal.bank
 
         db.session.commit()
-        return jsonify({'message': 'Cash Disbursement Journal entry updated successfully'})
+        return jsonify({"message": "Cash Disbursement Journal entry updated successfully"})
 
     elif request.method == 'DELETE':
-        # Delete the journal entry
         db.session.delete(journal)
         db.session.commit()
-        return jsonify({'message': 'Cash Disbursement Journal entry deleted successfully'})
- 
+        return jsonify({"message": "Cash Disbursement Journal entry deleted successfully"})
+
 @app.route('/usertransactions', methods=['GET'])
 @jwt_required()
 def get_user_transactions():
     # Get the current user's ID from the JWT
     current_user_id = get_jwt_identity()
 
-    # Query transactions for the current user only
+    # Query transactions for the current user
     invoices = InvoiceIssued.query.filter_by(user_id=current_user_id).all()
-    cash_receipts = CashReceiptJournal.query.filter_by(created_by=current_user_id).all()  # Use 'created_by' instead of 'user_id'
-    cash_disbursements = CashDisbursementJournal.query.filter_by(created_by=current_user_id).all()  # Same for CashDisbursementJournal
+    cash_receipts = CashReceiptJournal.query.filter_by(created_by=current_user_id).all()
+    cash_disbursements = CashDisbursementJournal.query.filter_by(created_by=current_user_id).all()
 
     # Prepare the transactions dictionary
     transactions = {
         'invoices_issued': [{
             'id': invoice.id,
             'invoice_number': invoice.invoice_number,
-            'date_issued': invoice.date_issued,
+            'date_issued': invoice.date_issued.strftime('%Y-%m-%d'),
             'amount': invoice.amount,
             'account_class': invoice.account_class,
             'account_type': invoice.account_type,
@@ -820,12 +831,13 @@ def get_user_transactions():
             'account_credited': invoice.account_credited,
             'invoice_type': invoice.invoice_type,
             'grn_number': invoice.grn_number,
-            'parent_account': invoice.parent_account  # Added parent_account
+            'parent_account': invoice.parent_account,
+            'sub_accounts': invoice.sub_accounts  # Assuming it's stored as JSON
         } for invoice in invoices],
         
         'cash_receipts': [{
             'id': receipt.id,
-            'receipt_date': receipt.receipt_date,
+            'receipt_date': receipt.receipt_date.strftime('%Y-%m-%d'),
             'receipt_no': receipt.receipt_no,
             'from_whom_received': receipt.from_whom_received,
             'description': receipt.description,
@@ -836,12 +848,13 @@ def get_user_transactions():
             'account_credited': receipt.account_credited,
             'cash': receipt.cash,
             'total': receipt.total,
-            'parent_account': receipt.parent_account  # Added parent_account
+            'parent_account': receipt.parent_account,
+            'sub_accounts': receipt.sub_accounts  # Assuming it's stored as JSON
         } for receipt in cash_receipts],
         
         'cash_disbursements': [{
             'id': disbursement.id,
-            'disbursement_date': disbursement.disbursement_date,
+            'disbursement_date': disbursement.disbursement_date.strftime('%Y-%m-%d'),
             'cheque_no': disbursement.cheque_no,
             'to_whom_paid': disbursement.to_whom_paid,
             'payment_type': disbursement.payment_type,
@@ -852,11 +865,14 @@ def get_user_transactions():
             'account_credited': disbursement.account_credited,
             'cash': disbursement.cash,
             'bank': disbursement.bank,
-            'parent_account': disbursement.parent_account  # Added parent_account
+            'total': disbursement.total,
+            'parent_account': disbursement.parent_account,
+            'sub_accounts': disbursement.sub_accounts  # Assuming it's stored as JSON
         } for disbursement in cash_disbursements]
     }
 
     return jsonify(transactions)
+
 
 if __name__ == '__main__':
     app.run(debug=True)

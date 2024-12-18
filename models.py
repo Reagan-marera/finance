@@ -11,7 +11,6 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
     role = db.Column(db.String(20), nullable=False, default='User')  # Options: 'CEO' or 'User'
-
     # Password methods
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -60,7 +59,7 @@ class InvoiceIssued(db.Model):
     account_credited = db.Column(db.String(100), nullable=False)
     invoice_type = db.Column(db.String(50), nullable=True)
     grn_number = db.Column(db.String(20), nullable=True)
-    
+    sub_accounts =db.Column(db.JSON, nullable=True)
     def __repr__(self):
         return f'<InvoiceIssued {self.invoice_number}>'
 
@@ -84,16 +83,20 @@ class CashReceiptJournal(db.Model):
     
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_by_user = db.relationship('User', back_populates='cash_receipts')
+    sub_accounts =db.Column(db.JSON, nullable=True)  # Store sub-accounts as a JSON field
 
     def __repr__(self):
         return f'<CashReceiptJournal {self.receipt_no}>'
 
     def save(self):
+        # Ensure that cash and bank are numeric before calculation
+        if not isinstance(self.cash, (int, float)) or not isinstance(self.bank, (int, float)):
+            raise ValueError("Cash and Bank values must be numeric.")
+        
         # Calculate total before saving
-        self.total = self.cash + (float(self.bank) if self.bank else 0)
+        self.total = self.cash + self.bank
         db.session.add(self)
         db.session.commit()
-
 # Cash Disbursement Journal model
 class CashDisbursementJournal(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -113,7 +116,7 @@ class CashDisbursementJournal(db.Model):
     cash = db.Column(db.Float, nullable=False, default=0.0)
     bank = db.Column(db.Float, nullable=False, default=0.0)  # Updated to Float for numeric values
     total = db.Column(db.Float, nullable=False, default=0.0)  # Added total column with a default value
-
+    sub_accounts =db.Column(db.JSON, nullable=True)
     # Foreign key to User
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_by_user = db.relationship('User', back_populates='cash_disbursements')
