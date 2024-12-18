@@ -9,6 +9,7 @@ from flask_mail import Mail, Message
 from datetime import datetime, timedelta
 import random
 import string
+import  logging
 from datetime import date
 # Initialize the Flask app
 app = Flask(__name__)
@@ -16,7 +17,7 @@ app = Flask(__name__)
 # Configure the app
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///financial_reporting.db'  # Use your actual database URI
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = 'your-secret-key'
+app.config['SECRET_KEY'] = 'reaganstrongkey'
 
 # Initialize Mail and extensions
 mail = Mail(app)  # Fixed: Create Mail instance and initialize
@@ -27,17 +28,18 @@ jwt = JWTManager(app)
 
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
-app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = 'marierareagan@gmail.com'  
-app.config['MAIL_PASSWORD'] = 'uxzu zvnq zwlt sydn ' 
-app.config['MAIL_TIMEOUT'] = 60  # Increase the timeout to 60 seconds
+app.config['MAIL_USE_SSL'] = False
+app.config['MAIL_USE_TLS'] = True # Use SSL instead of TLS
+app.config['MAIL_USERNAME'] = 'transactionsfinance355@gmail.com'  
+app.config['MAIL_PASSWORD'] = 'rvzxngpossphfgzm'  # Use an App Password if 2FA is enabled
 
-  # Enable debugging for detailed logs
+
+logging.basicConfig(level=logging.DEBUG)  
 
 
 def role_required(role):
     def wrapper(fn):
-        @wraps(fn)  
+        @wraps(fn)
         @jwt_required()
         def decorated(*args, **kwargs):
             current_user = User.query.filter_by(username=get_jwt_identity()).first()
@@ -46,6 +48,8 @@ def role_required(role):
             return fn(*args, **kwargs)
         return decorated
     return wrapper
+
+
 def parse_date(date_str):
     """Parse a date string in 'YYYY-MM-DD' format to a date object."""
     try:
@@ -53,25 +57,49 @@ def parse_date(date_str):
     except ValueError:
         return None
 
+
+@app.route('/send-email', methods=['POST'])
+def send_email():
+    try:
+        recipient_email = request.form.get('recipient', 'your-email@example.com')  # Default recipient
+        logging.debug(f"Attempting to send email to: {recipient_email}")
+        
+        msg = Message('Hello', sender='transactionsfinance355@gmail.com', recipients=[recipient_email])
+        msg.body = 'This is a test email.'
+
+        logging.debug(f"Email message created: {msg.body}")
+        
+        mail.send(msg)
+        logging.info("Email sent successfully")
+        
+        return 'Email sent!'
+    except Exception as e:
+        logging.error(f"Failed to send email: {e}", exc_info=True)
+        return f'Failed to send email: {e}'
+
+
 @app.route('/request_reset_password', methods=['POST'])
 def request_reset_password():
     data = request.get_json()
     email = data.get('email')
 
     if not email:
+        logging.warning("Email not provided in request")
         return jsonify({"error": "Email is required"}), 400
 
-    # Log the email for debugging
-    print(f"Received email: {email}")
+    logging.debug(f"Received password reset request for email: {email}")
 
-    user = User.query.filter(User.email.ilike(email)).first()  # Use case-insensitive search
+    user = User.query.filter(User.email.ilike(email)).first()
     if not user:
+        logging.warning(f"No user found with email: {email}")
         return jsonify({"error": "User with this email does not exist"}), 404
 
     otp = generate_otp()
     store_otp(email, otp)
 
-    username = user.username  
+    username = user.username
+    logging.debug(f"Generated OTP: {otp} for user: {username}")
+
     msg = Message('Password Reset Request', sender='noreply@yourapp.com', recipients=[email])
     msg.body = f"""
     Hello, {username}
@@ -86,9 +114,26 @@ def request_reset_password():
 
     If you did not request this password reset, please ignore this email.
     """
-    mail.send(msg)
 
-    return jsonify({"message": "OTP sent to your email"}), 200
+    try:
+        mail.send(msg)
+        logging.info(f"OTP email sent to {email}")
+        return jsonify({"message": "OTP sent to your email"}), 200
+    except Exception as e:
+        logging.error(f"Failed to send OTP email to {email}: {e}", exc_info=True)
+        return jsonify({"error": f"Failed to send OTP email: {e}"}), 500
+
+
+# Helper Functions
+def generate_otp():
+    """Generate a random 6-digit OTP."""
+    return ''.join(random.choices(string.digits, k=6))
+
+
+def store_otp(email, otp):
+    """Store the OTP in the database or any other storage for verification."""
+    # This function should implement the logic to save the OTP
+    logging.debug(f"Storing OTP: {otp} for email: {email}")
 
 @app.route('/get_user_role_by_email', methods=['POST'])
 def get_user_role_by_email():
@@ -326,13 +371,19 @@ def get_all_transactions():
 
     return jsonify(transactions)
 
+from flask_jwt_extended import get_jwt_identity
 
 # Route to manage the chart of accounts (GET and POST)
 @app.route('/chart-of-accounts', methods=['GET', 'POST'])
 @jwt_required()
 def manage_chart_of_accounts():
+    # Get the current user_id from the JWT
+    current_user_id = get_jwt_identity()
+
     if request.method == 'GET':
-        accounts = ChartOfAccounts.query.all()
+        # Filter accounts by the current user's ID
+        accounts = ChartOfAccounts.query.filter_by(user_id=current_user_id).all()
+
         return jsonify([{
             'id': acc.id,
             'parent_account': acc.parent_account,
@@ -344,21 +395,22 @@ def manage_chart_of_accounts():
     elif request.method == 'POST':
         data = request.get_json()
 
-        # Get the current user_id from the JWT
-        current_user_id = get_jwt_identity()  # Assuming JWT contains the user identity
+        # Ensure required fields are provided
+        if not all(key in data for key in ['parent_account', 'account_name', 'account_type']):
+            return jsonify({'error': 'Missing required fields'}), 400
 
+        # Create a new account for the current user
         new_account = ChartOfAccounts(
-            parent_account=data['parent_account'],  # Ensuring parent_account is passed
+            parent_account=data['parent_account'],
             account_name=data['account_name'],
             account_type=data['account_type'],
             sub_account_details=data.get('sub_account_details'),
-            user_id=current_user_id  # Assign the user_id
+            user_id=current_user_id
         )
 
         db.session.add(new_account)
         db.session.commit()
         return jsonify({'message': 'Chart of Accounts created successfully'}), 201
-
 
 # Route to update or delete chart of accounts (PUT and DELETE)
 @app.route('/chart-of-accounts/<int:id>', methods=['PUT', 'DELETE'])
@@ -379,21 +431,20 @@ def update_delete_chart_of_accounts(id):
         db.session.commit()
         return jsonify({'message': 'Chart of Accounts deleted successfully'})
 
-
 @app.route('/invoices', methods=['GET', 'POST'])
 @jwt_required()  # Ensure the user is authenticated
 def manage_invoices():
     try:
         # Get user information from the JWT token
         current_user = get_jwt_identity()  # This will give you the user_id or any other info
-        
+
         if request.method == 'GET':
             # Fetch invoices associated with the user's `coa_id`
             invoices = InvoiceIssued.query.filter_by(coa_id=current_user).all()
             return jsonify([{
                 'id': inv.id,
                 'invoice_number': inv.invoice_number,
-                'date_issued': inv.date_issued,
+                'date_issued': inv.date_issued.isoformat(),  # Format date as ISO string
                 'account_type': inv.account_type,
                 'amount': inv.amount,
                 'coa_id': inv.coa_id,
@@ -427,9 +478,9 @@ def manage_invoices():
             except ValueError:
                 return jsonify({'error': 'Invalid date format. Please use YYYY-MM-DD.'}), 400
 
-            # Check if the invoice number already exists
-            if InvoiceIssued.query.filter_by(invoice_number=data['invoice_number']).first():
-                return jsonify({'error': 'Invoice number already exists'}), 400
+            # Check if the invoice number already exists for the current user
+            if InvoiceIssued.query.filter_by(invoice_number=data['invoice_number'], user_id=current_user).first():
+                return jsonify({'error': 'Invoice number already exists for the current user'}), 400
 
             # Create and save the new invoice
             new_invoice = InvoiceIssued(
@@ -510,7 +561,6 @@ def update_delete_invoice(id):
     except Exception as e:
         app.logger.error(f"Error processing invoice {id}: {e}")
         return jsonify({'error': 'An error occurred while processing your request'}), 500
-
 @app.route('/cash-receipt-journals', methods=['GET', 'POST'])
 @jwt_required()
 def manage_cash_receipt_journals():
@@ -538,9 +588,9 @@ def manage_cash_receipt_journals():
             except ValueError:
                 return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
 
-            # Check for duplicate receipt_no
-            if CashReceiptJournal.query.filter_by(receipt_no=data['receipt_no']).first():
-                return jsonify({'error': f'Receipt number {data["receipt_no"]} already exists.'}), 400
+            # Check for duplicate receipt_no for the current user (not globally)
+            if CashReceiptJournal.query.filter_by(created_by=current_user, receipt_no=data['receipt_no']).first():
+                return jsonify({'error': f'Receipt number {data["receipt_no"]} already exists for your account.'}), 400
 
             # Validate numeric fields
             try:
@@ -664,92 +714,103 @@ def update_delete_cash_receipt_journal(id):
     except Exception as e:
         app.logger.error(f"Error updating/deleting cash receipt journal: {e}")
         return jsonify({"error": "An error occurred while processing your request"}), 500
+ 
     
 @app.route('/cash-disbursement-journals', methods=['GET', 'POST'])
 @jwt_required()
 def manage_cash_disbursement_journals():
-   
-    current_user = get_jwt_identity()
-    user_id = current_user.get('id') if isinstance(current_user, dict) else current_user
+    try:
+        current_user = get_jwt_identity()
+        user_id = current_user.get('id') if isinstance(current_user, dict) else current_user
 
-    if request.method == 'GET':
-        # Fetch all journals for the current user
-        journals = CashDisbursementJournal.query.filter_by(created_by=user_id).all()
-        return jsonify([
-            {
-                'id': journal.id,
-                'disbursement_date': journal.disbursement_date.isoformat(),
-                'cheque_no': journal.cheque_no,
-                'p_voucher_no': journal.p_voucher_no,
-                'to_whom_paid': journal.to_whom_paid,
-                'description': journal.description,
-                'account_class': journal.account_class,
-                'account_type': journal.account_type,
-                'account_credited': journal.account_credited,
-                'account_debited': journal.account_debited,
-                'parent_account': journal.parent_account,
-                'cashbook': journal.cashbook,
-                'payment_type': journal.payment_type,
-                'cash': journal.cash,
-                'bank': journal.bank,
-                'total': journal.total,
-                'sub_accounts': journal.sub_accounts,  # Added sub_accounts
-                'created_by_user': journal.created_by_user.username if journal.created_by_user else 'Unknown'
-            }
-            for journal in journals
-        ])
+        if request.method == 'GET':
+            # Fetch all journals for the current user
+            journals = CashDisbursementJournal.query.filter_by(created_by=user_id).all()
+            return jsonify([
+                {
+                    'id': journal.id,
+                    'disbursement_date': journal.disbursement_date.isoformat(),
+                    'cheque_no': journal.cheque_no,
+                    'p_voucher_no': journal.p_voucher_no,
+                    'to_whom_paid': journal.to_whom_paid,
+                    'description': journal.description,
+                    'account_class': journal.account_class,
+                    'account_type': journal.account_type,
+                    'account_credited': journal.account_credited,
+                    'account_debited': journal.account_debited,
+                    'parent_account': journal.parent_account,
+                    'cashbook': journal.cashbook,
+                    'payment_type': journal.payment_type,
+                    'cash': journal.cash,
+                    'bank': journal.bank,
+                    'total': journal.total,
+                    'sub_accounts': journal.sub_accounts,  # Added sub_accounts
+                    'created_by_user': journal.created_by_user.username if journal.created_by_user else 'Unknown'
+                }
+                for journal in journals
+            ])
 
-    elif request.method == 'POST':
-        data = request.get_json()
+        elif request.method == 'POST':
+            data = request.get_json()
 
-        # Parse and validate the date
-        disbursement_date = parse_date(data.get('disbursement_date'))
-        if not disbursement_date:
-            return jsonify({"error": "Invalid date format. Use 'YYYY-MM-DD'."}), 400
+            # Parse and validate the date
+            disbursement_date = parse_date(data.get('disbursement_date'))
+            if not disbursement_date:
+                return jsonify({"error": "Invalid date format. Use 'YYYY-MM-DD'."}), 400
 
-        # Validate accounts
-        account_credited = data.get('account_credited')
-        account_debited = data.get('account_debited')
-        parent_account = data.get('parent_account')
+            # Check for duplicate cheque_no for the current user
+            cheque_no = data.get('cheque_no')
+            existing_journal = CashDisbursementJournal.query.filter_by(created_by=user_id, cheque_no=cheque_no).first()
+            if existing_journal:
+                return jsonify({"error": f"Cheque number {cheque_no} already exists for this user."}), 400
 
-        coa_entry_credited = ChartOfAccounts.query.filter_by(user_id=user_id, account_name=account_credited).first()
-        coa_entry_debited = ChartOfAccounts.query.filter_by(user_id=user_id, account_name=account_debited).first()
+            # Validate accounts
+            account_credited = data.get('account_credited')
+            account_debited = data.get('account_debited')
+            parent_account = data.get('parent_account')
 
-        if not coa_entry_credited or not coa_entry_debited:
-            return jsonify({"error": "Invalid account credited or debited. Verify accounts in Chart of Accounts."}), 400
+            coa_entry_credited = ChartOfAccounts.query.filter_by(user_id=user_id, account_name=account_credited).first()
+            coa_entry_debited = ChartOfAccounts.query.filter_by(user_id=user_id, account_name=account_debited).first()
 
-        # Validate sub_accounts (Optional JSON field)
-        sub_accounts = data.get('sub_accounts')
-        if sub_accounts and not isinstance(sub_accounts, dict):
-            return jsonify({"error": "Invalid sub_accounts format. Must be a JSON object."}), 400
+            if not coa_entry_credited or not coa_entry_debited:
+                return jsonify({"error": "Invalid account credited or debited. Verify accounts in Chart of Accounts."}), 400
 
-        # Create the journal entry
-        new_journal = CashDisbursementJournal(
-            disbursement_date=disbursement_date,
-            cheque_no=data['cheque_no'],
-            p_voucher_no=data.get('p_voucher_no'),
-            to_whom_paid=data['to_whom_paid'],
-            description=data.get('description'),
-            account_class=data['account_class'],
-            account_type=data['account_type'],
-            payment_type=data['payment_type'],
-            cashbook=data['cashbook'],
-            account_credited=account_credited,
-            account_debited=account_debited,
-            parent_account=parent_account,
-            sub_accounts=sub_accounts,  # Include sub_accounts here
-            cash=float(data.get('cash', 0)),
-            bank=float(data.get('bank', 0)),
-            created_by=user_id
-        )
+            # Validate sub_accounts (Optional JSON field)
+            sub_accounts = data.get('sub_accounts')
+            if sub_accounts and not isinstance(sub_accounts, dict):
+                return jsonify({"error": "Invalid sub_accounts format. Must be a JSON object."}), 400
 
-        # Calculate total
-        new_journal.total = new_journal.cash + new_journal.bank
+            # Create the journal entry
+            new_journal = CashDisbursementJournal(
+                disbursement_date=disbursement_date,
+                cheque_no=cheque_no,
+                p_voucher_no=data.get('p_voucher_no'),
+                to_whom_paid=data['to_whom_paid'],
+                description=data.get('description'),
+                account_class=data['account_class'],
+                account_type=data['account_type'],
+                payment_type=data['payment_type'],
+                cashbook=data['cashbook'],
+                account_credited=account_credited,
+                account_debited=account_debited,
+                parent_account=parent_account,
+                sub_accounts=sub_accounts,  # Include sub_accounts here
+                cash=float(data.get('cash', 0)),
+                bank=float(data.get('bank', 0)),
+                created_by=user_id
+            )
 
-        # Save to database
-        db.session.add(new_journal)
-        db.session.commit()
-        return jsonify({"message": "Cash Disbursement Journal entry created successfully"}), 201
+            # Calculate total
+            new_journal.total = new_journal.cash + new_journal.bank
+
+            # Save to database
+            db.session.add(new_journal)
+            db.session.commit()
+            return jsonify({"message": "Cash Disbursement Journal entry created successfully"}), 201
+
+    except Exception as e:
+        app.logger.error(f"Error managing cash disbursement journals: {e}")
+        return jsonify({"error": "An error occurred while processing the request."}), 500
 
 
 @app.route('/cash-disbursement-journals/<int:id>', methods=['PUT', 'DELETE'])
@@ -872,7 +933,6 @@ def get_user_transactions():
     }
 
     return jsonify(transactions)
-
 
 if __name__ == '__main__':
     app.run(debug=True)

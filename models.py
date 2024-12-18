@@ -41,10 +41,9 @@ class ChartOfAccounts(db.Model):
     def __repr__(self):
         return f'<ChartOfAccounts {self.parent_account} - {self.account_name}>'
 
-# Invoice Issued model
 class InvoiceIssued(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    invoice_number = db.Column(db.String(50), unique=True, nullable=False)
+    invoice_number = db.Column(db.String(50), nullable=False)
     date_issued = db.Column(db.Date, nullable=False)
     account_class = db.Column(db.String(100), nullable=False)
     account_type = db.Column(db.String(100), nullable=False)
@@ -59,15 +58,22 @@ class InvoiceIssued(db.Model):
     account_credited = db.Column(db.String(100), nullable=False)
     invoice_type = db.Column(db.String(50), nullable=True)
     grn_number = db.Column(db.String(20), nullable=True)
-    sub_accounts =db.Column(db.JSON, nullable=True)
+    sub_accounts = db.Column(db.JSON, nullable=True)
+
+    # Add composite unique constraint on user_id and invoice_number
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'invoice_number', name='unique_invoice_per_user'),
+    )
+
     def __repr__(self):
         return f'<InvoiceIssued {self.invoice_number}>'
+from sqlalchemy import UniqueConstraint
 
-# Cash Receipt Journal model
+# Cash Receipt Journal model (updated)
 class CashReceiptJournal(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     receipt_date = db.Column(db.Date, nullable=False)
-    receipt_no = db.Column(db.String(50), unique=True, nullable=False)
+    receipt_no = db.Column(db.String(50), nullable=False)  # Remove unique constraint
     ref_no = db.Column(db.String(50), nullable=True)
     from_whom_received = db.Column(db.String(255), nullable=False)
     description = db.Column(db.String(255), nullable=True)
@@ -83,7 +89,11 @@ class CashReceiptJournal(db.Model):
     
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_by_user = db.relationship('User', back_populates='cash_receipts')
-    sub_accounts =db.Column(db.JSON, nullable=True)  # Store sub-accounts as a JSON field
+    sub_accounts = db.Column(db.JSON, nullable=True)  # Store sub-accounts as a JSON field
+
+    __table_args__ = (
+        UniqueConstraint('created_by', 'receipt_no', name='unique_receipt_per_user'),
+    )
 
     def __repr__(self):
         return f'<CashReceiptJournal {self.receipt_no}>'
@@ -97,11 +107,13 @@ class CashReceiptJournal(db.Model):
         self.total = self.cash + self.bank
         db.session.add(self)
         db.session.commit()
+
+
 # Cash Disbursement Journal model
 class CashDisbursementJournal(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     disbursement_date = db.Column(db.Date, nullable=False)
-    cheque_no = db.Column(db.String(50), unique=True, nullable=False)
+    cheque_no = db.Column(db.String(50), nullable=False)  # Removed unique constraint
     p_voucher_no = db.Column(db.String(50), nullable=True)
     to_whom_paid = db.Column(db.String(100), nullable=False)
     payment_type = db.Column(db.String(255), nullable=True)
@@ -116,7 +128,8 @@ class CashDisbursementJournal(db.Model):
     cash = db.Column(db.Float, nullable=False, default=0.0)
     bank = db.Column(db.Float, nullable=False, default=0.0)  # Updated to Float for numeric values
     total = db.Column(db.Float, nullable=False, default=0.0)  # Added total column with a default value
-    sub_accounts =db.Column(db.JSON, nullable=True)
+    sub_accounts = db.Column(db.JSON, nullable=True)
+    
     # Foreign key to User
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_by_user = db.relationship('User', back_populates='cash_disbursements')
@@ -133,6 +146,11 @@ class CashDisbursementJournal(db.Model):
         self.total = self.cash + self.bank
         db.session.add(self)
         db.session.commit()
+
+    # Adding a UniqueConstraint for the combination of created_by and cheque_no
+    __table_args__ = (
+        UniqueConstraint('created_by', 'cheque_no', name='unique_receipt_per_user'),
+    )
 
 # OTP Model
 class OTP(db.Model):
