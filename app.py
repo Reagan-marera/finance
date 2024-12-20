@@ -331,7 +331,6 @@ def get_all_transactions():
             'account_type': invoice.account_type,
             'account_debited': invoice.account_debited,
             'account_credited': invoice.account_credited,
-            'invoice_type': invoice.invoice_type,
             'grn_number': invoice.grn_number,
             'parent_account': invoice.parent_account  # Added parent_account
         } for invoice in invoices],
@@ -430,7 +429,6 @@ def update_delete_chart_of_accounts(id):
         db.session.delete(account)
         db.session.commit()
         return jsonify({'message': 'Chart of Accounts deleted successfully'})
-
 @app.route('/invoices', methods=['GET', 'POST'])
 @jwt_required()  # Ensure the user is authenticated
 def manage_invoices():
@@ -452,7 +450,6 @@ def manage_invoices():
                 'account_debited': inv.account_debited,
                 'account_credited': inv.account_credited,
                 'grn_number': inv.grn_number,
-                'invoice_type': inv.invoice_type,
                 'parent_account': inv.parent_account,
                 'sub_accounts': inv.sub_accounts  # Include sub_accounts in response
             } for inv in invoices]), 200
@@ -460,12 +457,15 @@ def manage_invoices():
         elif request.method == 'POST':
             data = request.get_json()
 
-            # Validate required fields
+            # Validate required fields, allowing `account_credited` or `account_debited` to be nullable
             required_fields = ['invoice_number', 'date_issued', 'account_type', 'amount', 'account_class', 
-                               'account_debited', 'account_credited', 'invoice_type', 'parent_account', 'sub_accounts']
+                               'parent_account', 'sub_accounts']
             missing_fields = [field for field in required_fields if field not in data or not data[field]]
             if missing_fields:
                 return jsonify({'error': f'Missing or empty fields: {", ".join(missing_fields)}'}), 400
+
+            if not data.get('account_debited') and not data.get('account_credited'):
+                return jsonify({'error': 'Either account_debited or account_credited must be provided.'}), 400
 
             # Ensure sub_accounts is a valid JSON object
             sub_accounts = data.get('sub_accounts')
@@ -489,10 +489,9 @@ def manage_invoices():
                 account_type=data['account_type'],
                 amount=float(data['amount']),
                 account_class=data['account_class'],
-                account_debited=data['account_debited'],
-                account_credited=data['account_credited'],
+                account_debited=data.get('account_debited'),  # Can be nullable
+                account_credited=data.get('account_credited'),  # Can be nullable
                 grn_number=data.get('grn_number'),
-                invoice_type=data['invoice_type'],  # Add invoice_type here
                 coa_id=current_user,  # Use the user_id from the token (current_user)
                 user_id=current_user,  # Make sure to include user_id in the model
                 parent_account=data['parent_account'],  # Include parent_account
@@ -547,7 +546,6 @@ def update_delete_invoice(id):
             invoice.account_debited = data.get('account_debited', invoice.account_debited)
             invoice.account_credited = data.get('account_credited', invoice.account_credited)
             invoice.grn_number = data.get('grn_number', invoice.grn_number)  # Update GRN number if provided
-            invoice.invoice_type = data.get('invoice_type', invoice.invoice_type)  # Update invoice type
             invoice.parent_account = data.get('parent_account', invoice.parent_account)  # Update parent_account if provided
 
             db.session.commit()
@@ -561,6 +559,7 @@ def update_delete_invoice(id):
     except Exception as e:
         app.logger.error(f"Error processing invoice {id}: {e}")
         return jsonify({'error': 'An error occurred while processing your request'}), 500
+    
 @app.route('/cash-receipt-journals', methods=['GET', 'POST'])
 @jwt_required()
 def manage_cash_receipt_journals():
@@ -576,7 +575,7 @@ def manage_cash_receipt_journals():
             required_fields = [
                 'receipt_date', 'receipt_no', 'from_whom_received',
                 'account_class', 'account_type', 'receipt_type',
-                'account_debited', 'account_credited', 'cash', 'bank', 'parent_account'
+                'cash', 'bank', 'parent_account', 'cashbook'
             ]
             missing_fields = [field for field in required_fields if not data.get(field)]
             if missing_fields:
@@ -588,7 +587,7 @@ def manage_cash_receipt_journals():
             except ValueError:
                 return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
 
-            # Check for duplicate receipt_no for the current user (not globally)
+            # Check for duplicate receipt_no for the current user
             if CashReceiptJournal.query.filter_by(created_by=current_user, receipt_no=data['receipt_no']).first():
                 return jsonify({'error': f'Receipt number {data["receipt_no"]} already exists for your account.'}), 400
 
@@ -604,6 +603,12 @@ def manage_cash_receipt_journals():
             if not isinstance(sub_accounts, dict):
                 return jsonify({'error': 'Sub-accounts must be a valid JSON object.'}), 400
 
+            # Ensure either account_debited or account_credited is provided (one can be null)
+            account_debited = data.get('account_debited')
+            account_credited = data.get('account_credited')
+            if not account_debited and not account_credited:
+                return jsonify({'error': 'Either account_debited or account_credited must be provided.'}), 400
+
             # Calculate the total field
             total = cash + bank
 
@@ -617,12 +622,13 @@ def manage_cash_receipt_journals():
                 account_class=data['account_class'],
                 account_type=data['account_type'],
                 receipt_type=data['receipt_type'],
-                account_debited=data['account_debited'],
-                account_credited=data['account_credited'],
+                account_debited=account_debited,  # Can be nullable
+                account_credited=account_credited,  # Can be nullable
                 cash=cash,
                 bank=bank,
                 total=total,
                 parent_account=data['parent_account'],
+                cashbook=data['cashbook'],  # Include cashbook field
                 sub_accounts=sub_accounts,  # Handle sub_accounts field
                 created_by=current_user
             )
@@ -650,8 +656,9 @@ def manage_cash_receipt_journals():
                     'cash': journal.cash,
                     'bank': journal.bank,
                     'parent_account': journal.parent_account,
+                    'cashbook': journal.cashbook,  # Include cashbook in the response
                     'total': journal.total,
-                    'sub_accounts': journal.sub_accounts,  # Include sub_accounts in response
+                    'sub_accounts': journal.sub_accounts,  # Include sub_accounts in the response
                 }
                 for journal in journals
             ]
@@ -890,7 +897,7 @@ def get_user_transactions():
             'account_type': invoice.account_type,
             'account_debited': invoice.account_debited,
             'account_credited': invoice.account_credited,
-            'invoice_type': invoice.invoice_type,
+            
             'grn_number': invoice.grn_number,
             'parent_account': invoice.parent_account,
             'sub_accounts': invoice.sub_accounts  # Assuming it's stored as JSON

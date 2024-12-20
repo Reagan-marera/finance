@@ -54,9 +54,8 @@ class InvoiceIssued(db.Model):
     chart_of_account = db.relationship('ChartOfAccounts', backref=db.backref('invoices', lazy=True))
     user = db.relationship('User', back_populates='invoices')
 
-    account_debited = db.Column(db.String(100), nullable=False)
-    account_credited = db.Column(db.String(100), nullable=False)
-    invoice_type = db.Column(db.String(50), nullable=True)
+    account_debited = db.Column(db.String(100), nullable=True)
+    account_credited = db.Column(db.String(100), nullable=True)
     grn_number = db.Column(db.String(20), nullable=True)
     sub_accounts = db.Column(db.JSON, nullable=True)
 
@@ -80,17 +79,17 @@ class CashReceiptJournal(db.Model):
     account_class = db.Column(db.String(100), nullable=False)
     account_type = db.Column(db.String(100), nullable=False)
     receipt_type = db.Column(db.String(50), nullable=False)
-    account_debited = db.Column(db.String(100), nullable=False)
-    account_credited = db.Column(db.String(100), nullable=False)
+    account_debited = db.Column(db.String(100), nullable=True)
+    account_credited = db.Column(db.String(100), nullable=True)
     bank = db.Column(db.String(100), nullable=True)  # Nullable for bank field
     cash = db.Column(db.Float, nullable=False)
     total = db.Column(db.Float, nullable=False)
     parent_account = db.Column(db.String(150), nullable=False)
-    
+    cashbook=db.Column(db.String(250), nullable=False) 
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_by_user = db.relationship('User', back_populates='cash_receipts')
     sub_accounts = db.Column(db.JSON, nullable=True)  # Store sub-accounts as a JSON field
-
+    
     __table_args__ = (
         UniqueConstraint('created_by', 'receipt_no', name='unique_receipt_per_user'),
     )
@@ -123,7 +122,8 @@ class CashDisbursementJournal(db.Model):
     account_type = db.Column(db.String(50), nullable=False)
     parent_account = db.Column(db.String(150), nullable=False)
     account_credited = db.Column(db.String(100), nullable=False)
-    account_debited = db.Column(db.String(100), nullable=False)
+    account_debited = db.Column(db.String(100), nullable=True)
+    cashbook=db.Column(db.String(250), nullable=False) 
 
     cash = db.Column(db.Float, nullable=False, default=0.0)
     bank = db.Column(db.Float, nullable=False, default=0.0)  # Updated to Float for numeric values
