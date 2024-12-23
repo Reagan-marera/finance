@@ -11,16 +11,11 @@ import random
 import string
 import  logging
 from datetime import date
-# Initialize the Flask app
 app = Flask(__name__)
-
-# Configure the app
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///financial_reporting.db'  # Use your actual database URI
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///financial_reporting.db'  
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'reaganstrongkey'
-
-# Initialize Mail and extensions
-mail = Mail(app)  # Fixed: Create Mail instance and initialize
+mail = Mail(app)  
 db.init_app(app)
 migrate = Migrate(app, db)
 CORS(app)
@@ -371,7 +366,6 @@ def get_all_transactions():
     return jsonify(transactions)
 
 from flask_jwt_extended import get_jwt_identity
-
 # Route to manage the chart of accounts (GET and POST)
 @app.route('/chart-of-accounts', methods=['GET', 'POST'])
 @jwt_required()
@@ -388,7 +382,7 @@ def manage_chart_of_accounts():
             'parent_account': acc.parent_account,
             'account_name': acc.account_name,
             'account_type': acc.account_type,
-            'sub_account_details': acc.sub_account_details
+            'sub_account_details': acc.sub_account_details  # Assuming this is already a JSON field
         } for acc in accounts])
 
     elif request.method == 'POST':
@@ -398,12 +392,17 @@ def manage_chart_of_accounts():
         if not all(key in data for key in ['parent_account', 'account_name', 'account_type']):
             return jsonify({'error': 'Missing required fields'}), 400
 
+        # Ensure sub_account_details is either None or a valid JSON
+        sub_account_details = data.get('sub_account_details', None)
+        if sub_account_details and not isinstance(sub_account_details, dict) and not isinstance(sub_account_details, list):
+            return jsonify({'error': 'sub_account_details should be a JSON object or list'}), 400
+
         # Create a new account for the current user
         new_account = ChartOfAccounts(
             parent_account=data['parent_account'],
             account_name=data['account_name'],
             account_type=data['account_type'],
-            sub_account_details=data.get('sub_account_details'),
+            sub_account_details=sub_account_details,  # Storing as JSON
             user_id=current_user_id
         )
 
@@ -418,10 +417,18 @@ def update_delete_chart_of_accounts(id):
     account = ChartOfAccounts.query.get_or_404(id)
     if request.method == 'PUT':
         data = request.get_json()
-        account.parent_account = data.get('parent_account', account.parent_account)  # Fixed to check parent_account
+
+        # Ensure sub_account_details is either None or a valid JSON
+        sub_account_details = data.get('sub_account_details', None)
+        if sub_account_details and not isinstance(sub_account_details, dict) and not isinstance(sub_account_details, list):
+            return jsonify({'error': 'sub_account_details should be a JSON object or list'}), 400
+
+        # Update account fields with provided data
+        account.parent_account = data.get('parent_account', account.parent_account)
         account.account_name = data.get('account_name', account.account_name)
         account.account_type = data.get('account_type', account.account_type)
-        account.sub_account_details = data.get('sub_account_details', account.sub_account_details)
+        account.sub_account_details = sub_account_details if sub_account_details is not None else account.sub_account_details
+
         db.session.commit()
         return jsonify({'message': 'Chart of Accounts updated successfully'})
 
@@ -429,6 +436,7 @@ def update_delete_chart_of_accounts(id):
         db.session.delete(account)
         db.session.commit()
         return jsonify({'message': 'Chart of Accounts deleted successfully'})
+
 @app.route('/invoices', methods=['GET', 'POST'])
 @jwt_required()  # Ensure the user is authenticated
 def manage_invoices():
@@ -722,7 +730,6 @@ def update_delete_cash_receipt_journal(id):
         app.logger.error(f"Error updating/deleting cash receipt journal: {e}")
         return jsonify({"error": "An error occurred while processing your request"}), 500
  
-    
 @app.route('/cash-disbursement-journals', methods=['GET', 'POST'])
 @jwt_required()
 def manage_cash_disbursement_journals():
@@ -771,16 +778,13 @@ def manage_cash_disbursement_journals():
             if existing_journal:
                 return jsonify({"error": f"Cheque number {cheque_no} already exists for this user."}), 400
 
-            # Validate accounts
+            # Remove account validation for 'account_credited' and 'account_debited'
             account_credited = data.get('account_credited')
             account_debited = data.get('account_debited')
             parent_account = data.get('parent_account')
 
-            coa_entry_credited = ChartOfAccounts.query.filter_by(user_id=user_id, account_name=account_credited).first()
-            coa_entry_debited = ChartOfAccounts.query.filter_by(user_id=user_id, account_name=account_debited).first()
-
-            if not coa_entry_credited or not coa_entry_debited:
-                return jsonify({"error": "Invalid account credited or debited. Verify accounts in Chart of Accounts."}), 400
+            # Skip checking the ChartOfAccounts table
+            # If you still want to validate other fields (like sub_accounts or cash), you can leave those checks in place.
 
             # Validate sub_accounts (Optional JSON field)
             sub_accounts = data.get('sub_accounts')
@@ -818,7 +822,6 @@ def manage_cash_disbursement_journals():
     except Exception as e:
         app.logger.error(f"Error managing cash disbursement journals: {e}")
         return jsonify({"error": "An error occurred while processing the request."}), 500
-
 
 @app.route('/cash-disbursement-journals/<int:id>', methods=['PUT', 'DELETE'])
 @jwt_required()

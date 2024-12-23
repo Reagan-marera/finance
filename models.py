@@ -27,12 +27,13 @@ class User(db.Model):
         return f'<User {self.username} - {self.role}>'
 
 # Chart of Accounts (COA) model
+
 class ChartOfAccounts(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     parent_account = db.Column(db.String(150), nullable=False)
     account_name = db.Column(db.String(100), nullable=False)
     account_type = db.Column(db.String(50), nullable=False)  # E.g., Asset, Liability, Equity
-    sub_account_details = db.Column(db.String(255), nullable=True)
+    sub_account_details = db.Column(db.JSON, nullable=True)  # Storing subaccounts as JSON
     
     # Foreign key to link to User
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)

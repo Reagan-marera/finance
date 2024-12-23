@@ -1,8 +1,8 @@
 """empty message
 
-Revision ID: 5739dbcbaf6b
+Revision ID: e4c14b6baca1
 Revises: 
-Create Date: 2024-12-20 15:00:08.376785
+Create Date: 2024-12-22 15:27:18.094236
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '5739dbcbaf6b'
+revision = 'e4c14b6baca1'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -49,7 +49,7 @@ def upgrade():
     sa.Column('account_type', sa.String(length=50), nullable=False),
     sa.Column('parent_account', sa.String(length=150), nullable=False),
     sa.Column('account_credited', sa.String(length=100), nullable=False),
-    sa.Column('account_debited', sa.String(length=100), nullable=False),
+    sa.Column('account_debited', sa.String(length=100), nullable=True),
     sa.Column('cash', sa.Float(), nullable=False),
     sa.Column('bank', sa.Float(), nullable=False),
     sa.Column('total', sa.Float(), nullable=False),
@@ -87,7 +87,7 @@ def upgrade():
     sa.Column('parent_account', sa.String(length=150), nullable=False),
     sa.Column('account_name', sa.String(length=100), nullable=False),
     sa.Column('account_type', sa.String(length=50), nullable=False),
-    sa.Column('sub_account_details', sa.String(length=255), nullable=True),
+    sa.Column('sub_account_details', sa.JSON(), nullable=True),
     sa.Column('user_id', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['user_id'], ['user.id'], ),
     sa.PrimaryKeyConstraint('id')
