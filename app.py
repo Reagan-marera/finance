@@ -262,18 +262,29 @@ def store_otp(email, otp):
         otp_entry = OTP(email=email, otp=otp, expiry=expiry)
         db.session.add(otp_entry)
     db.session.commit()
-
 @app.route('/register', methods=['POST'])
 def register_user():
-    data = request.get_json()
-    if User.query.filter_by(username=data['username']).first():
-        return jsonify({'message': 'User already exists'}), 400
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
 
-    user = User(username=data['username'], email=data['email'], role=data.get('role', 'User'))
-    user.set_password(data['password'])
-    db.session.add(user)
-    db.session.commit()
-    return jsonify({'message': 'User registered successfully'}), 201
+        # Check if the username already exists
+        if User.query.filter_by(username=data['username']).first():
+            return jsonify({'message': 'User already exists'}), 400
+
+        # Create the new user and add to the database
+        user = User(username=data['username'], email=data['email'], role=data.get('role', 'User'))
+        user.set_password(data['password'])  # Assuming this is a method on the User model to hash the password
+        db.session.add(user)
+        db.session.commit()
+
+        logging.info(f"User {data['username']} registered successfully.")
+        return jsonify({'message': 'User registered successfully'}), 201
+
+    except Exception as e:
+        logging.error(f"Error registering user: {str(e)}", exc_info=True)
+        return jsonify({'error': 'Internal Server Error'}), 500
 
 @app.route('/login', methods=['POST'])
 def login_user():
