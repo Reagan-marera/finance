@@ -21,12 +21,15 @@ migrate = Migrate(app, db)
 CORS(app)
 jwt = JWTManager(app)
 
-app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_SERVER'] = 'mail.boogiecoin.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_SSL'] = False
-app.config['MAIL_USE_TLS'] = True # Use SSL instead of TLS
-app.config['MAIL_USERNAME'] = 'transactionsfinance355@gmail.com'  
-app.config['MAIL_PASSWORD'] = 'rvzxngpossphfgzm'  # Use an App Password if 2FA is enabled
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = 'finance@boogiecoin.com'
+app.config['MAIL_PASSWORD'] = 'finance@2025'
+
+
+
 
 
 logging.basicConfig(level=logging.DEBUG)  
