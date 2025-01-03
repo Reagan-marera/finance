@@ -2,7 +2,7 @@ from flask import Flask, jsonify, request
 from flask_migrate import Migrate
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager, jwt_required, create_access_token, get_jwt_identity
-from models import db, User, OTP, ChartOfAccounts, InvoiceIssued, CashReceiptJournal, CashDisbursementJournal
+from models import db, User, OTP, ChartOfAccounts, InvoiceIssued, CashReceiptJournal, CashDisbursementJournal,Church,TithePledge
 from functools import wraps
 from werkzeug.security import generate_password_hash
 from flask_mail import Mail, Message
@@ -16,6 +16,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///financial_reporting.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'reaganstrongkey'
 mail = Mail(app)  
+mail.init_app(app)
 db.init_app(app)
 migrate = Migrate(app, db)
 CORS(app)
@@ -23,14 +24,14 @@ jwt = JWTManager(app)
 
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True 
 app.config['MAIL_USE_SSL'] = False
-app.config['MAIL_USE_TLS'] = True # Use SSL instead of TLS
 app.config['MAIL_USERNAME'] = 'transactionsfinance355@gmail.com'  
-app.config['MAIL_PASSWORD'] = 'rvzxngpossphfgzm'  # Use an App Password if 2FA is enabled
+app.config['MAIL_PASSWORD'] = 'rvzxngpossphfgzm'  
 
 
-logging.basicConfig(level=logging.DEBUG)  
-
+mail = Mail(app)
+logging.basicConfig(level=logging.DEBUG) 
 
 def role_required(role):
     def wrapper(fn):
@@ -52,25 +53,6 @@ def parse_date(date_str):
     except ValueError:
         return None
 
-
-@app.route('/send-email', methods=['POST'])
-def send_email():
-    try:
-        recipient_email = request.form.get('recipient', 'your-email@example.com')  # Default recipient
-        logging.debug(f"Attempting to send email to: {recipient_email}")
-        
-        msg = Message('Hello', sender='transactionsfinance355@gmail.com', recipients=[recipient_email])
-        msg.body = 'This is a test email.'
-
-        logging.debug(f"Email message created: {msg.body}")
-        
-        mail.send(msg)
-        logging.info("Email sent successfully")
-        
-        return 'Email sent!'
-    except Exception as e:
-        logging.error(f"Failed to send email: {e}", exc_info=True)
-        return f'Failed to send email: {e}'
 
 
 @app.route('/request_reset_password', methods=['POST'])
@@ -262,20 +244,99 @@ def store_otp(email, otp):
         otp_entry = OTP(email=email, otp=otp, expiry=expiry)
         db.session.add(otp_entry)
     db.session.commit()
+ 
+ 
+ 
+ 
 @app.route('/register', methods=['POST'])
 def register_user():
+    
     try:
         data = request.get_json()
         if not data:
             return jsonify({'error': 'No data provided'}), 400
 
-        # Check if the username already exists
-        if User.query.filter_by(username=data['username']).first():
-            return jsonify({'message': 'User already exists'}), 400
+        # Check if the required fields are present
+        required_fields = ['username', 'email', 'password', 'role']
+        if not all(field in data for field in required_fields):
+            return jsonify({'error': 'Missing required fields'}), 400
 
-        # Create the new user and add to the database
-        user = User(username=data['username'], email=data['email'], role=data.get('role', 'User'))
-        user.set_password(data['password'])  # Assuming this is a method on the User model to hash the password
+        # Check if the username or email already exists
+        if User.query.filter_by(username=data['username']).first():
+            return jsonify({'message': 'Username already exists'}), 400
+        if User.query.filter_by(email=data['email']).first():
+            return jsonify({'message': 'Email already exists'}), 400
+
+        # Handle Church creation if the user is Church CEO
+        if data['role'] == 'Church CEO':
+            # Ensure Church information is provided
+            church_data = data.get('church')
+            if not church_data or not all(field in church_data for field in ['name', 'address', 'phone_number', 'email']):
+                return jsonify({'error': 'Missing church information'}), 400
+
+            # Check if the church already exists (based on the email, which should be unique for each church)
+            existing_church = Church.query.filter_by(email=church_data['email']).first()
+            if existing_church:
+                return jsonify({'message': 'A church with this email already exists'}), 400
+
+            # Create new Church if it doesn't exist
+            church = Church(
+                name=church_data['name'],
+                address=church_data['address'],
+                phone_number=church_data['phone_number'],
+                email=church_data['email']
+            )
+            db.session.add(church)
+            db.session.commit()
+
+            # Create the Church CEO user and link them to the church
+            user = User(
+                username=data['username'],
+                email=data['email'],
+                role=data['role'],
+                church_id=church.id  # Link the Church CEO to the newly created church
+            )
+        
+        else:
+            # Create user for role 'Member' or other roles
+            if data['role'] == 'Member':
+                if not all(field in data for field in ['residence', 'phone_number', 'occupation', 'member_number', 'church_name']):
+                    return jsonify({'error': 'Missing member-specific fields or church_name'}), 400
+
+                # Look up the church by name
+                church_name = data['church_name']
+                church = Church.query.filter_by(name=church_name).first()
+
+                if not church:
+                    return jsonify({'error': 'Church not found with the provided name'}), 400
+
+                # Check if the member_number already exists in the same church
+                existing_member = User.query.filter_by(member_number=data['member_number'], church_id=church.id).first()
+                if existing_member:
+                    return jsonify({'error': 'Member number already exists in this church'}), 400
+
+                # Create the Member user and link to the found church
+                user = User(
+                    username=data['username'],
+                    email=data['email'],
+                    role=data['role'],
+                    residence=data['residence'],
+                    phone_number=data['phone_number'],
+                    occupation=data['occupation'],
+                    member_number=data['member_number'],
+                    church_id=church.id  # Link the member to the existing church
+                )
+
+            else:
+                # Create user for any other roles
+                user = User(
+                    username=data['username'],
+                    email=data['email'],
+                    role=data['role']
+                )
+
+        # Hash the password and save the user
+        user.set_password(data['password'])
         db.session.add(user)
         db.session.commit()
 
@@ -286,20 +347,28 @@ def register_user():
         logging.error(f"Error registering user: {str(e)}", exc_info=True)
         return jsonify({'error': 'Internal Server Error'}), 500
 
+
 @app.route('/login', methods=['POST'])
 def login_user():
     data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    # Check if username and password are provided
+    if not all(field in data for field in ['username', 'password']):
+        return jsonify({'error': 'Missing required fields'}), 400
+
     user = User.query.filter_by(username=data['username']).first()
     if user and user.check_password(data['password']):
-        token = create_access_token(identity=user.username)
+        # Create JWT token with both username and role in the identity
+        token = create_access_token(identity={"username": user.username, "role": user.role})
         return jsonify({'token': token, 'role': user.role}), 200
+
     return jsonify({'message': 'Invalid username or password'}), 401
-
-
 
 # CEO-specific routes
 @app.route('/users', methods=['GET'])
-@role_required('CEO')
+@role_required('Church CEO')
 def get_all_users():
     users = User.query.all()
     return jsonify([{
@@ -310,7 +379,7 @@ def get_all_users():
     } for user in users])
 
 @app.route('/users/<int:id>', methods=['DELETE'])
-@role_required('CEO')
+@role_required('Church CEO')
 def delete_user(id):
     user = User.query.get_or_404(id)
     db.session.delete(user)
@@ -319,7 +388,7 @@ def delete_user(id):
 
 # Route to get all transactions
 @app.route('/transactions', methods=['GET'])
-@role_required('CEO')
+@role_required('Church CEO')
 def get_all_transactions():
     # Query all required models
     invoices = InvoiceIssued.query.all()
@@ -376,7 +445,7 @@ def get_all_transactions():
 
     return jsonify(transactions)
 
-from flask_jwt_extended import get_jwt_identity
+
 # Route to manage the chart of accounts (GET and POST)
 @app.route('/chart-of-accounts', methods=['GET', 'POST'])
 @jwt_required()
@@ -954,6 +1023,192 @@ def get_user_transactions():
     }
 
     return jsonify(transactions)
+
+@app.route('/member/<user_id>', methods=['GET'])
+@jwt_required()  # This ensures the user is authenticated
+def get_member_info(user_id):
+    current_user_identity = get_jwt_identity()  # Get the user identity from the JWT token
+    current_user_id = current_user_identity.get('username')  # Extract the username (as a string)
+    current_user_role = current_user_identity.get('role')  # Extract the role from the token
+
+    # Fetch the current user from the database
+    current_user = User.query.filter_by(username=current_user_id).first()
+
+    if not current_user:
+        return jsonify({"error": "User not found"}), 404
+
+    # If the current user is the Church CEO, they can view all members of their church
+    if current_user_role == 'Church CEO':
+        # Fetch all members from the same church (by church_id)
+        members = User.query.filter_by(church_id=current_user.church_id).all()
+        all_members_info = [
+            {
+                "username": member.username,
+                "email": member.email,
+                "role": member.role,
+                "residence": member.residence,
+                "phone_number": member.phone_number,
+                "occupation": member.occupation,
+                "member_number": member.member_number,
+                "church_name": member.church.name if member.church else "Unknown Church"  # Get church name
+            }
+            for member in members
+        ]
+        return jsonify({"all_members_info": all_members_info}), 200
+
+    # If the current user is not the CEO, they can only view their own information
+    if str(current_user.id) != user_id:  # Ensure you're comparing user_id as a string to current_user.id
+        return jsonify({"error": "Unauthorized access"}), 403
+
+    # Fetch the member information for the requested user
+    member = User.query.filter_by(id=user_id).first()
+    if not member:
+        return jsonify({"error": "Member not found"}), 404
+
+    return jsonify({
+        "member_info": {
+            "username": member.username,
+            "email": member.email,
+            "role": member.role,
+            "residence": member.residence,
+            "phone_number": member.phone_number,
+            "occupation": member.occupation,
+            "member_number": member.member_number,
+            "church_name": member.church.name if member.church else "Unknown Church"  # Get church name
+        }
+    }), 200
+    
+
+# Combined GET and POST for /create-pledge
+@app.route('/create-pledge', methods=['GET', 'POST'])
+@jwt_required()  # Ensure the user is authenticated using JWT
+def create_or_get_tithe_pledge():
+    current_user_identity = get_jwt_identity()
+    current_user_id = current_user_identity.get('username')  # Get the username of the current user
+
+    if not current_user_id:
+        return jsonify({"error": "Authenticated user does not have a username"}), 400
+
+    # If the method is POST (create a new pledge)
+    if request.method == 'POST':
+        data = request.get_json()  # Get JSON data from the request
+
+        # Ensure required fields are in the request data
+        amount_pledged = data.get('amount_pledged')
+        month = data.get('month')
+        year = data.get('year')
+
+        if not amount_pledged or not month or not year:
+            return jsonify({"error": "Missing required fields: amount_pledged, month, and year"}), 400
+
+        # Find the user by the username from the JWT
+        user = User.query.filter_by(username=current_user_id).first()
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        # Find the church associated with the user (assuming the church_id is in the User model)
+        church = Church.query.get(user.church_id)
+        if not church:
+            return jsonify({"error": "Church not found for user"}), 404
+
+        try:
+            # Create the new TithePledge
+            tithe_pledge = TithePledge(
+                amount_pledged=amount_pledged,
+                month=month,
+                year=year,
+                member_id=user.id,  # Using the user ID
+                church_id=church.id  # Using the church ID
+            )
+
+            # Add the new TithePledge to the database
+            db.session.add(tithe_pledge)
+            db.session.commit()
+
+            return jsonify({"message": "Tithe pledge created successfully"}), 201
+
+        except Exception as e:
+            db.session.rollback()  # Rollback in case of an error
+            return jsonify({"error": "Failed to create pledge", "details": str(e)}), 500
+
+    # If the method is GET (retrieve pledges)
+    elif request.method == 'GET':
+        user = User.query.filter_by(username=current_user_id).first()
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        pledges = TithePledge.query.filter_by(member_id=user.id).all()
+
+        pledge_list = [{
+            'id': pledge.id,
+            'amount_pledged': pledge.amount_pledged,
+            'month': pledge.month,
+            'year': pledge.year,
+            'username': current_user_id
+        } for pledge in pledges]
+
+        return jsonify({"pledges": pledge_list}), 200
+
+@app.route('/update-pledge/<int:pledge_id>', methods=['PUT'])
+@jwt_required()
+def update_tithe_pledge(pledge_id):
+    data = request.get_json()
+    current_user_identity = get_jwt_identity()
+    current_user_id = current_user_identity.get('username')
+
+    if not current_user_id:
+        return jsonify({"error": "Authenticated user does not have a username"}), 400
+    
+    pledge = TithePledge.query.get(pledge_id)
+    if not pledge:
+        return jsonify({"error": "Pledge not found"}), 404
+
+    if pledge.member_id != current_user_identity['id']:
+        return jsonify({"error": "Unauthorized to update this pledge"}), 403
+
+    amount_pledged = data.get('amount_pledged')
+    month = data.get('month')
+    year = data.get('year')
+    
+    if amount_pledged:
+        pledge.amount_pledged = amount_pledged
+    if month:
+        pledge.month = month
+    if year:
+        pledge.year = year
+
+    try:
+        db.session.commit()
+        return jsonify({"message": "Tithe pledge updated successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "Failed to update pledge", "details": str(e)}), 500
+
+# 4. Delete Pledge (DELETE)
+@app.route('/delete-pledge/<int:pledge_id>', methods=['DELETE'])
+@jwt_required()
+def delete_tithe_pledge(pledge_id):
+    current_user_identity = get_jwt_identity()
+    current_user_id = current_user_identity.get('username')
+
+    if not current_user_id:
+        return jsonify({"error": "Authenticated user does not have a username"}), 400
+    
+    pledge = TithePledge.query.get(pledge_id)
+    if not pledge:
+        return jsonify({"error": "Pledge not found"}), 404
+
+    if pledge.member_id != current_user_identity['id']:
+        return jsonify({"error": "Unauthorized to delete this pledge"}), 403
+
+    try:
+        db.session.delete(pledge)
+        db.session.commit()
+        return jsonify({"message": "Tithe pledge deleted successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "Failed to delete pledge", "details": str(e)}), 500
+  
 
 if __name__ == '__main__':
     app.run(debug=True)
